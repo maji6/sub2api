@@ -18,6 +18,10 @@ sidecars/sub2api-audit
 
 - [`docs/merge-notes.md`](docs/merge-notes.md)
 
+如果你现在是在当前仓库的 `prompt-audit` 分支里部署整套联动环境，推荐再看：
+
+- [`../../docs/prompt-audit-deployment.md`](../../docs/prompt-audit-deployment.md)
+
 如果你把它作为独立开源项目发布，建议把它理解成一个“可插拔生态项目”：
 
 - `sub2api-audit` 负责消费、分析、落库、管理接口

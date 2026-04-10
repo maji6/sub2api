@@ -1,0 +1,67 @@
+# =============================================================================
+# sub2api-audit Docker Compose - Standalone Configuration
+# =============================================================================
+# This configuration runs only the sidecar application.
+# PostgreSQL and Redis must be provided externally.
+#
+# Usage:
+#   1. Copy .env.example to .env and fill connection values
+#   2. docker compose -f deploy/docker-compose.standalone.yml up -d --build
+#   3. Health check: http://localhost:${AUDIT_PORT:-8087}/healthz
+#
+# Important:
+#   - Core data path is direct Redis + PostgreSQL connectivity.
+#   - Admin API key is NOT used for sidecar -> sub2api communication.
+#   - Admin API key only protects sidecar management endpoints.
+#   - To auto-reuse sub2api admin key, point sidecar to the SAME PostgreSQL
+#     used by sub2api so it can read settings.admin_api_key.
+# =============================================================================
+
+services:
+  sub2api-audit:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: sub2api-audit
+    restart: unless-stopped
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${AUDIT_PORT:-8087}:8087"
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+
+      - SUB2API_AUDIT_SERVER_HOST=0.0.0.0
+      - SUB2API_AUDIT_SERVER_PORT=8087
+      - SUB2API_AUDIT_SERVER_READ_HEADER_TIMEOUT_SECONDS=10
+      - SUB2API_AUDIT_SERVER_IDLE_TIMEOUT_SECONDS=120
+
+      - SUB2API_AUDIT_DATABASE_DSN=${SUB2API_AUDIT_DATABASE_DSN:?SUB2API_AUDIT_DATABASE_DSN is required}
+      - SUB2API_AUDIT_DATABASE_MAX_OPEN_CONNS=${SUB2API_AUDIT_DATABASE_MAX_OPEN_CONNS:-10}
+      - SUB2API_AUDIT_DATABASE_MAX_IDLE_CONNS=${SUB2API_AUDIT_DATABASE_MAX_IDLE_CONNS:-5}
+      - SUB2API_AUDIT_DATABASE_CONN_MAX_LIFETIME_MINUTES=${SUB2API_AUDIT_DATABASE_CONN_MAX_LIFETIME_MINUTES:-30}
+
+      - SUB2API_AUDIT_REDIS_ADDR=${SUB2API_AUDIT_REDIS_ADDR:?SUB2API_AUDIT_REDIS_ADDR is required}
+      - SUB2API_AUDIT_REDIS_PASSWORD=${SUB2API_AUDIT_REDIS_PASSWORD:-}
+      - SUB2API_AUDIT_REDIS_DB=${SUB2API_AUDIT_REDIS_DB:-0}
+      - SUB2API_AUDIT_REDIS_DIAL_TIMEOUT_SECONDS=${SUB2API_AUDIT_REDIS_DIAL_TIMEOUT_SECONDS:-5}
+      - SUB2API_AUDIT_REDIS_READ_TIMEOUT_SECONDS=${SUB2API_AUDIT_REDIS_READ_TIMEOUT_SECONDS:-5}
+      - SUB2API_AUDIT_REDIS_WRITE_TIMEOUT_SECONDS=${SUB2API_AUDIT_REDIS_WRITE_TIMEOUT_SECONDS:-5}
+
+      - SUB2API_AUDIT_AUDIT_CONSUMER_ENABLED=${SUB2API_AUDIT_AUDIT_CONSUMER_ENABLED:-true}
+      - SUB2API_AUDIT_AUDIT_STREAM_NAME=${SUB2API_AUDIT_AUDIT_STREAM_NAME:-prompt_audit:sampled}
+      - SUB2API_AUDIT_AUDIT_CONSUMER_GROUP=${SUB2API_AUDIT_AUDIT_CONSUMER_GROUP:-prompt-audit-sidecar}
+      - SUB2API_AUDIT_AUDIT_CONSUMER_NAME=${SUB2API_AUDIT_AUDIT_CONSUMER_NAME:-sub2api-audit-1}
+      - SUB2API_AUDIT_AUDIT_BATCH_SIZE=${SUB2API_AUDIT_AUDIT_BATCH_SIZE:-16}
+      - SUB2API_AUDIT_AUDIT_BLOCK_SECONDS=${SUB2API_AUDIT_AUDIT_BLOCK_SECONDS:-5}
+      - SUB2API_AUDIT_AUDIT_INSERT_TIMEOUT_SECONDS=${SUB2API_AUDIT_AUDIT_INSERT_TIMEOUT_SECONDS:-5}
+      - SUB2API_AUDIT_AUDIT_DEFAULT_LIST_LIMIT=${SUB2API_AUDIT_AUDIT_DEFAULT_LIST_LIMIT:-50}
+      - SUB2API_AUDIT_AUDIT_MAX_LIST_LIMIT=${SUB2API_AUDIT_AUDIT_MAX_LIST_LIMIT:-200}
+
+      # Optional override. Leave empty to read settings.admin_api_key from DB.
+      - SUB2API_AUDIT_ADMIN_AUTH_ADMIN_API_KEY=${SUB2API_AUDIT_ADMIN_AUTH_ADMIN_API_KEY:-}
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8087/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

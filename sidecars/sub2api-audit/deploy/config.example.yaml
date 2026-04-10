@@ -1,0 +1,38 @@
+server:
+  host: "0.0.0.0"
+  port: 8087
+  read_header_timeout_seconds: 10
+  idle_timeout_seconds: 120
+
+database:
+  dsn: "postgres://postgres:postgres@127.0.0.1:5432/sub2api?sslmode=disable"
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime_minutes: 30
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+  dial_timeout_seconds: 5
+  read_timeout_seconds: 5
+  write_timeout_seconds: 5
+
+audit:
+  consumer_enabled: true
+  stream_name: "prompt_audit:sampled"
+  consumer_group: "prompt-audit-sidecar"
+  consumer_name: "sub2api-audit-1"
+  batch_size: 16
+  block_seconds: 5
+  insert_timeout_seconds: 5
+  default_list_limit: 50
+  max_list_limit: 200
+  keyword_rules:
+    - "password"
+    - "secret"
+    - "admin key"
+
+admin_auth:
+  # 留空时从 settings.admin_api_key 读取
+  admin_api_key: ""

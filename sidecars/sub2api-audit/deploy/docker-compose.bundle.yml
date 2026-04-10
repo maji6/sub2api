@@ -1,0 +1,178 @@
+# =============================================================================
+# Bundle Stack: bridge-enabled sub2api + sub2api-audit + postgres + redis
+# =============================================================================
+# This bundle is for users who want a complete prompt-audit stack from the
+# sub2api-audit repository alone.
+#
+# It does NOT require the main sub2api repository checkout. Instead it expects:
+#   - a published sub2api-audit image
+#   - a published bridge-enabled sub2api image
+#
+# Important:
+#   - Official upstream sub2api images will NOT emit prompt audit events until
+#     the bridge is merged upstream.
+#   - Set SUB2API_IMAGE to your compatible fork / patched image.
+#   - Admin API key is NOT used for sidecar -> sub2api communication.
+#   - The real integration path is:
+#       sub2api -> Redis Stream -> sub2api-audit
+#       sub2api-audit -> PostgreSQL prompt_audit_logs
+# =============================================================================
+
+services:
+  sub2api:
+    image: ${SUB2API_IMAGE:?SUB2API_IMAGE is required}
+    container_name: sub2api
+    restart: unless-stopped
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${SUB2API_PORT:-8080}:8080"
+    volumes:
+      - sub2api_data:/app/data
+    environment:
+      - AUTO_SETUP=true
+
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - SERVER_MODE=${SERVER_MODE:-release}
+      - RUN_MODE=${RUN_MODE:-standard}
+
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${POSTGRES_USER:-sub2api}
+      - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - DATABASE_DBNAME=${POSTGRES_DB:-sub2api}
+      - DATABASE_SSLMODE=disable
+
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_ENABLE_TLS=false
+
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sub2api.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-}
+      - TZ=${TZ:-Asia/Shanghai}
+
+      - GATEWAY_PROMPT_AUDIT_ENABLED=${GATEWAY_PROMPT_AUDIT_ENABLED:-true}
+      - GATEWAY_PROMPT_AUDIT_STREAM_NAME=${GATEWAY_PROMPT_AUDIT_STREAM_NAME:-prompt_audit:sampled}
+      - GATEWAY_PROMPT_AUDIT_SAMPLE_RATE_BASIS_POINTS=${GATEWAY_PROMPT_AUDIT_SAMPLE_RATE_BASIS_POINTS:-200}
+      - GATEWAY_PROMPT_AUDIT_MAX_BODY_BYTES=${GATEWAY_PROMPT_AUDIT_MAX_BODY_BYTES:-131072}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bundle-stack
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  sub2api-audit:
+    image: ${SUB2API_AUDIT_IMAGE:?SUB2API_AUDIT_IMAGE is required}
+    container_name: sub2api-audit
+    restart: unless-stopped
+    ports:
+      - "${BIND_HOST:-0.0.0.0}:${AUDIT_PORT:-8087}:8087"
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+
+      - SUB2API_AUDIT_SERVER_HOST=0.0.0.0
+      - SUB2API_AUDIT_SERVER_PORT=8087
+      - SUB2API_AUDIT_SERVER_READ_HEADER_TIMEOUT_SECONDS=${SUB2API_AUDIT_SERVER_READ_HEADER_TIMEOUT_SECONDS:-10}
+      - SUB2API_AUDIT_SERVER_IDLE_TIMEOUT_SECONDS=${SUB2API_AUDIT_SERVER_IDLE_TIMEOUT_SECONDS:-120}
+
+      - SUB2API_AUDIT_DATABASE_DSN=postgres://${POSTGRES_USER:-sub2api}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-sub2api}?sslmode=disable
+      - SUB2API_AUDIT_REDIS_ADDR=redis:6379
+      - SUB2API_AUDIT_REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - SUB2API_AUDIT_REDIS_DB=${REDIS_DB:-0}
+
+      - SUB2API_AUDIT_AUDIT_CONSUMER_ENABLED=${SUB2API_AUDIT_AUDIT_CONSUMER_ENABLED:-true}
+      - SUB2API_AUDIT_AUDIT_STREAM_NAME=${SUB2API_AUDIT_AUDIT_STREAM_NAME:-prompt_audit:sampled}
+      - SUB2API_AUDIT_AUDIT_CONSUMER_GROUP=${SUB2API_AUDIT_AUDIT_CONSUMER_GROUP:-prompt-audit-sidecar}
+      - SUB2API_AUDIT_AUDIT_CONSUMER_NAME=${SUB2API_AUDIT_AUDIT_CONSUMER_NAME:-sub2api-audit-1}
+      - SUB2API_AUDIT_AUDIT_BATCH_SIZE=${SUB2API_AUDIT_AUDIT_BATCH_SIZE:-16}
+      - SUB2API_AUDIT_AUDIT_BLOCK_SECONDS=${SUB2API_AUDIT_AUDIT_BLOCK_SECONDS:-5}
+      - SUB2API_AUDIT_AUDIT_INSERT_TIMEOUT_SECONDS=${SUB2API_AUDIT_AUDIT_INSERT_TIMEOUT_SECONDS:-5}
+      - SUB2API_AUDIT_AUDIT_DEFAULT_LIST_LIMIT=${SUB2API_AUDIT_AUDIT_DEFAULT_LIST_LIMIT:-50}
+      - SUB2API_AUDIT_AUDIT_MAX_LIST_LIMIT=${SUB2API_AUDIT_AUDIT_MAX_LIST_LIMIT:-200}
+
+      # Leave empty to reuse settings.admin_api_key from the shared PostgreSQL.
+      - SUB2API_AUDIT_ADMIN_AUTH_ADMIN_API_KEY=${SUB2API_AUDIT_ADMIN_AUTH_ADMIN_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sub2api:
+        condition: service_healthy
+    networks:
+      - bundle-stack
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8087/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: sub2api-postgres
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - PGDATA=/var/lib/postgresql/data
+      - POSTGRES_USER=${POSTGRES_USER:-sub2api}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=${POSTGRES_DB:-sub2api}
+      - TZ=${TZ:-Asia/Shanghai}
+    networks:
+      - bundle-stack
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sub2api} -d ${POSTGRES_DB:-sub2api}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine
+    container_name: sub2api-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: >
+      sh -c '
+        redis-server
+        --save 60 1
+        --appendonly yes
+        --appendfsync everysec
+        ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}'
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - REDISCLI_AUTH=${REDIS_PASSWORD:-}
+    networks:
+      - bundle-stack
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  sub2api_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  bundle-stack:
+    driver: bridge

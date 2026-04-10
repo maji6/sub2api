@@ -358,6 +358,8 @@ type GatewayConfig struct {
 	OpenAIPassthroughAllowTimeoutHeaders bool `mapstructure:"openai_passthrough_allow_timeout_headers"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
+	// PromptAudit: Prompt 审计桥配置（Redis Stream 采样投递）
+	PromptAudit GatewayPromptAuditConfig `mapstructure:"prompt_audit"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
 	// MaxIdleConns: 所有主机的最大空闲连接总数
@@ -428,6 +430,18 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+}
+
+// GatewayPromptAuditConfig Prompt 审计桥配置。
+type GatewayPromptAuditConfig struct {
+	// Enabled: 是否启用 prompt audit bridge（默认关闭，避免未配置 sidecar 时误采集）
+	Enabled bool `mapstructure:"enabled"`
+	// StreamName: Redis Stream 名称
+	StreamName string `mapstructure:"stream_name"`
+	// SampleRateBasisPoints: 随机采样率（万分比，0-10000）
+	SampleRateBasisPoints int `mapstructure:"sample_rate_basis_points"`
+	// MaxBodyBytes: 写入 Redis 前保留的最大请求体字节数
+	MaxBodyBytes int `mapstructure:"max_body_bytes"`
 }
 
 // UserMessageQueueConfig 用户消息串行队列配置
@@ -1358,6 +1372,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
+	viper.SetDefault("gateway.prompt_audit.enabled", false)
+	viper.SetDefault("gateway.prompt_audit.stream_name", "prompt_audit:sampled")
+	viper.SetDefault("gateway.prompt_audit.sample_rate_basis_points", 200)
+	viper.SetDefault("gateway.prompt_audit.max_body_bytes", 128*1024)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
 	viper.SetDefault("gateway.openai_ws.mode_router_v2_enabled", false)
@@ -1975,6 +1993,20 @@ func (c *Config) Validate() error {
 	if c.Gateway.StreamKeepaliveInterval != 0 &&
 		(c.Gateway.StreamKeepaliveInterval < 5 || c.Gateway.StreamKeepaliveInterval > 30) {
 		return fmt.Errorf("gateway.stream_keepalive_interval must be 0 or between 5-30 seconds")
+	}
+	if c.Gateway.PromptAudit.SampleRateBasisPoints < 0 || c.Gateway.PromptAudit.SampleRateBasisPoints > 10000 {
+		return fmt.Errorf("gateway.prompt_audit.sample_rate_basis_points must be within [0,10000]")
+	}
+	if c.Gateway.PromptAudit.MaxBodyBytes < 0 {
+		return fmt.Errorf("gateway.prompt_audit.max_body_bytes must be non-negative")
+	}
+	if c.Gateway.PromptAudit.Enabled {
+		if strings.TrimSpace(c.Gateway.PromptAudit.StreamName) == "" {
+			return fmt.Errorf("gateway.prompt_audit.stream_name must not be empty when enabled")
+		}
+		if c.Gateway.PromptAudit.MaxBodyBytes <= 0 {
+			return fmt.Errorf("gateway.prompt_audit.max_body_bytes must be positive when enabled")
+		}
 	}
 	// 兼容旧键 sticky_previous_response_ttl_seconds
 	if c.Gateway.OpenAIWS.StickyResponseIDTTLSeconds <= 0 && c.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds > 0 {

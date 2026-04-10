@@ -58,3 +58,25 @@ func TestPrepareOpsRequestBodyForQueue_LargeBodyTruncated(t *testing.T) {
 	require.LessOrEqual(t, len(*requestBodyJSON), opsMaxStoredRequestBodyBytes)
 	require.Contains(t, *requestBodyJSON, "request_body_truncated")
 }
+
+func TestPrepareOpsRequestBodyForQueueWithLimit_RespectsCustomLimit(t *testing.T) {
+	raw := []byte(`{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"` + strings.Repeat("x", 256) + `"}]}`)
+
+	requestBodyJSON, truncated, requestBodyBytes := PrepareOpsRequestBodyForQueueWithLimit(raw, 64)
+	require.NotNil(t, requestBodyJSON)
+	require.NotNil(t, requestBodyBytes)
+	require.True(t, truncated)
+	require.Equal(t, len(raw), *requestBodyBytes)
+	require.LessOrEqual(t, len(*requestBodyJSON), 64)
+}
+
+func TestPrepareOpsRequestBodyForQueueWithLimit_FallsBackToDefaultLimit(t *testing.T) {
+	raw := []byte(`{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"hello"}]}`)
+
+	withExplicitDefault, truncatedDefault, bytesDefault := PrepareOpsRequestBodyForQueueWithLimit(raw, opsMaxStoredRequestBodyBytes)
+	withFallback, truncatedFallback, bytesFallback := PrepareOpsRequestBodyForQueueWithLimit(raw, 0)
+
+	require.Equal(t, truncatedDefault, truncatedFallback)
+	require.Equal(t, bytesDefault, bytesFallback)
+	require.Equal(t, withExplicitDefault, withFallback)
+}

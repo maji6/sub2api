@@ -1185,6 +1185,27 @@ func TestValidateConfigErrors(t *testing.T) {
 			wantErr: "gateway.stream_keepalive_interval",
 		},
 		{
+			name:    "gateway prompt audit sample rate range",
+			mutate:  func(c *Config) { c.Gateway.PromptAudit.SampleRateBasisPoints = 10001 },
+			wantErr: "gateway.prompt_audit.sample_rate_basis_points",
+		},
+		{
+			name: "gateway prompt audit stream name required when enabled",
+			mutate: func(c *Config) {
+				c.Gateway.PromptAudit.Enabled = true
+				c.Gateway.PromptAudit.StreamName = " "
+			},
+			wantErr: "gateway.prompt_audit.stream_name",
+		},
+		{
+			name: "gateway prompt audit max body bytes must be positive when enabled",
+			mutate: func(c *Config) {
+				c.Gateway.PromptAudit.Enabled = true
+				c.Gateway.PromptAudit.MaxBodyBytes = 0
+			},
+			wantErr: "gateway.prompt_audit.max_body_bytes",
+		},
+		{
 			name:    "gateway openai ws oauth max conns factor",
 			mutate:  func(c *Config) { c.Gateway.OpenAIWS.OAuthMaxConnsFactor = 0 },
 			wantErr: "gateway.openai_ws.oauth_max_conns_factor",

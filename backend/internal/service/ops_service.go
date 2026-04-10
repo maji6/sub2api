@@ -23,10 +23,19 @@ const (
 // PrepareOpsRequestBodyForQueue 在入队前对请求体执行脱敏与裁剪，返回可直接写入 OpsInsertErrorLogInput 的字段。
 // 该方法用于避免异步队列持有大块原始请求体，减少错误风暴下的内存放大风险。
 func PrepareOpsRequestBodyForQueue(raw []byte) (requestBodyJSON *string, truncated bool, requestBodyBytes *int) {
+	return PrepareOpsRequestBodyForQueueWithLimit(raw, opsMaxStoredRequestBodyBytes)
+}
+
+// PrepareOpsRequestBodyForQueueWithLimit 在入队前对请求体执行脱敏与裁剪，并允许调用方指定最大保留字节数。
+// 该方法用于需要复用 Ops 请求体脱敏逻辑、但希望使用不同上限的队列/桥接路径。
+func PrepareOpsRequestBodyForQueueWithLimit(raw []byte, maxBytes int) (requestBodyJSON *string, truncated bool, requestBodyBytes *int) {
 	if len(raw) == 0 {
 		return nil, false, nil
 	}
-	sanitized, truncated, bytesLen := sanitizeAndTrimRequestBody(raw, opsMaxStoredRequestBodyBytes)
+	if maxBytes <= 0 {
+		maxBytes = opsMaxStoredRequestBodyBytes
+	}
+	sanitized, truncated, bytesLen := sanitizeAndTrimRequestBody(raw, maxBytes)
 	if sanitized != "" {
 		out := sanitized
 		requestBodyJSON = &out

@@ -231,6 +231,21 @@ gateway:
   # OpenAI 透传模式是否放行客户端超时头（如 x-stainless-timeout）
   # 默认 false：过滤超时头，降低上游提前断流风险。
   openai_passthrough_allow_timeout_headers: false
+  # Prompt audit sampling bridge
+  # Prompt 审计采样桥配置
+  prompt_audit:
+    # Enable prompt audit sampling (default: false)
+    # 是否启用 Prompt 审计采样（默认 false）
+    enabled: false
+    # Redis Stream name for sampled prompt audit events
+    # 采样 Prompt 审计事件写入的 Redis Stream 名称
+    stream_name: "prompt_audit:sampled"
+    # Sampling rate in basis points (0-10000)
+    # 采样率，单位为基点（0-10000）
+    sample_rate_basis_points: 200
+    # Max stored request body bytes after sanitization
+    # 清洗后请求体的最大存储字节数
+    max_body_bytes: 131072
   # OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
   openai_ws:
     # 新版 WS mode 路由（默认关闭）。关闭时保持当前 legacy 实现行为。
